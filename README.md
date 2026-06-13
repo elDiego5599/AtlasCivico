@@ -122,7 +122,86 @@ ON reportes_clima(codigo_divipola, fecha_registro DESC);
 
 CREATE INDEX idx_contratos_estado
 ON contratos(estado);
+
+CREATE INDEX idx_contratos_divipola
+ON contratos(codigo_divipola);
+
+CREATE INDEX idx_reportes_clima_divipola
+ON reportes_clima(codigo_divipola);
+
+CREATE INDEX idx_reportes_clima_fecha
+ON reportes_clima(fecha_registro DESC);
 ```
+
+---
+
+# Estrategia de Ingesta de Datos (UPSERT)
+
+Debido a que los contratos públicos pueden cambiar de estado con el tiempo
+(por ejemplo, pasar de "En ejecución" a "Liquidado"), el pipeline ETL debe
+manejar actualizaciones sin producir errores por llaves primarias duplicadas.
+
+Para ello, PostgreSQL utilizará operaciones de tipo `UPSERT`
+(`INSERT ... ON CONFLICT DO UPDATE`).
+
+## Ejemplo de carga tolerante a actualizaciones
+
+```sql
+INSERT INTO contratos (
+    id_contrato,
+    codigo_divipola,
+    entidad,
+    contratista,
+    objeto_original,
+    objeto_simplificado,
+    valor_total,
+    fecha_firma,
+    estado,
+    url_secop
+)
+VALUES (... )
+ON CONFLICT (id_contrato)
+DO UPDATE SET
+    estado = EXCLUDED.estado,
+    valor_total = EXCLUDED.valor_total;
+```
+
+Este enfoque garantiza:
+
+* Actualización automática de contratos existentes.
+* Prevención de errores `Unique Violation`.
+* Idempotencia en los procesos ETL diarios.
+* Sincronización consistente con SECOP II.
+
+---
+
+# Estructura del Proyecto (Monorepo)
+
+La separación de responsabilidades entre frontend, backend y ETL permite
+trabajo colaborativo simultáneo sin conflictos frecuentes de Git.
+
+```txt
+AtlasCivico/
+├── backend/             # Código de FastAPI, esquemas SQLModel y routers API
+├── frontend/            # Código React, Vite, Tailwind y componentes UI
+├── etl/                 # Extracción SODA API y procesamiento con Ollama
+│   ├── config.py
+│   ├── extract.py
+│   └── summarize.py     # Interacción con Llama-3-8B
+├── .gitignore
+└── README.md
+```
+
+Esta estructura evita mezclar:
+
+* `venv/`
+* `node_modules/`
+* archivos temporales de ETL,
+* configuraciones locales de desarrollo.
+
+También facilita la división del trabajo durante el semestre y las vacaciones,
+permitiendo que un integrante trabaje sobre el frontend mientras el otro
+desarrolla backend y procesamiento de datos.
 
 ---
 
@@ -172,9 +251,7 @@ ON contratos(estado);
 * **Frontend:** React + Vite (HTML5, CSS3, JavaScript/JSX). Compatibilidad con
   navegadores antiguos mediante `@vitejs/plugin-legacy`.
 
-* **Estilos:** Tailwind CSS y componentes de Shadcn/ui. La interfaz utiliza
-  colores (verde, rojo, amarillo, gris) para comunicar estados, sin dependencia
-  de emojis.
+* **Estilos:** Tailwind CSS y componentes de Shadcn/ui.
 
 * **Mapas:** Leaflet (ligero, no requiere WebGL).
 
@@ -193,79 +270,46 @@ ON contratos(estado);
 
 El proyecto maneja exclusivamente datos públicos, pero se aplican medidas de
 seguridad para proteger la infraestructura, la integridad de la información y
-la privacidad de los usuarios (si en el futuro se implementan funcionalidades de
-personalización).
+la privacidad de los usuarios.
 
 ## Protección en tránsito
 
-* Todo el tráfico se sirve sobre **HTTPS**. En producción se debe usar
-  LetsEncrypt o similar, con cabecera HSTS (Strict-Transport-Security).
-
-* Configuración de **CORS restrictivo**: solo el origen del frontend autorizado.
-
-* Cabeceras de seguridad (`X-Content-Type-Options: nosniff`,
-  `X-Frame-Options: DENY`, etc.) aplicadas en el servidor.
+* Todo el tráfico se sirve sobre HTTPS.
+* Configuración de CORS restrictivo.
+* Cabeceras de seguridad (`X-Frame-Options`, `nosniff`, etc.).
 
 ## Gestión de secretos
 
-* **Variables de entorno** para todas las configuraciones sensibles: cadena de
-  conexión a la base de datos, claves de API, secretos de firma.
-
-* El archivo `.env` **no se sube al repositorio**. Se incluye un
-  `.env.example` con valores dummy.
-
-* En producción se recomienda un gestor de secretos
-  (ej. HashiCorp Vault, AWS Secrets Manager).
+* Variables de entorno para configuraciones sensibles.
+* `.env` excluido del repositorio.
+* `.env.example` con valores dummy.
 
 ## API (FastAPI)
 
-* **Rate limiting** con `slowapi` para prevenir scraping y ataques de
-  denegación de servicio.
-
-* **Validación estricta de entradas** mediante esquemas de Pydantic
-  (límites de longitud, tipos exactos).
-
-* Middleware `TrustedHostMiddleware` para prevenir ataques de encabezado `Host`.
-
-* Los mensajes de error no exponen detalles de implementación.
+* Rate limiting con `slowapi`.
+* Validación estricta mediante Pydantic.
+* Uso de `TrustedHostMiddleware`.
 
 ## Base de datos
 
-* La base de datos **no se expone a internet**; solo acepta conexiones desde el
-  backend a través de una red privada (o localhost).
-
-* Credenciales robustas y almacenadas en variables de entorno.
-
-* Backups periódicos automatizables (se incluye script de `pg_dump` como
-  ejemplo). En producción se cifrarían los backups.
+* Acceso restringido únicamente desde el backend.
+* Backups automatizables.
+* Credenciales robustas.
 
 ## Dependencias
 
 * Versiones fijadas en `requirements.txt` y `package.json`.
-
-* Auditorías periódicas con `pip-audit` y `npm audit`.
-
-* Contenedores Docker (si se usan) con imágenes oficiales y sin ejecución como
-  root.
+* Auditorías con `pip-audit` y `npm audit`.
 
 ## Frontend
 
-* **Política de Seguridad de Contenido (CSP)** estricta.
+* Política CSP estricta.
+* Sanitización con `DOMPurify`.
 
-* Sanitización de cualquier contenido dinámico con `DOMPurify`.
+## Criptografía
 
-* Los tokens de sesión (si se implementan) deben almacenarse en cookies
-  `HttpOnly; Secure; SameSite=Strict`.
-
-## Criptografía (lineamientos)
-
-* Para cifrado de datos en reposo (si se requiriera) se usaría
-  **AES-256-GCM** con claves derivadas mediante Argon2.
-
-* Comunicaciones internas con **TLS mutuo** si la arquitectura se distribuye.
-
-* Firma digital de los datos obtenidos de fuentes externas (opcional, pero
-  recomendado para garantizar integridad).
+* AES-256-GCM para cifrado en reposo.
+* TLS mutuo para comunicaciones internas distribuidas.
 
 ---
 
@@ -275,14 +319,13 @@ personalización).
 
 * Python 3.10+
 * Node.js 18+
-* PostgreSQL (para producción) o SQLite (para desarrollo)
-* Ollama instalado y con el modelo `llama3` descargado
-* (Opcional) GPU NVIDIA con CUDA para acelerar la inferencia
+* PostgreSQL o SQLite
+* Ollama instalado
+* Modelo `llama3` descargado
 
 ## Backend (FastAPI) e Inferencia Local
 
 ```bash
-# Asegurarse de que Ollama está corriendo con el modelo
 ollama pull llama3
 
 cd backend
@@ -297,13 +340,10 @@ venv\Scripts\activate
 
 pip install -r requirements.txt
 
-# Ejecutar migraciones (crea las tablas)
 python database_setup.py
 
-# Cargar datos semilla para demostración (opcional pero recomendado)
 python seed_data.py
 
-# Iniciar el servidor de la API
 uvicorn main:app --reload
 ```
 
@@ -323,75 +363,38 @@ La aplicación estará disponible en:
 http://localhost:5173
 ```
 
-Para producción, generar el build con:
-
-```bash
-npm run build
-```
-
-y servirlo mediante FastAPI o un servidor web dedicado.
-
 ---
 
 # Robustez del Pipeline de Datos
 
-* El script de extracción utiliza **reintentos con backoff exponencial**
-  para manejar fallos de la API pública.
-
-* Las tareas de simplificación se procesan de manera asíncrona usando un
-  worker interno. Si el modelo falla, se almacena el texto original y se
-  activa un flag `simplificacion_fallo` para que el frontend lo muestre con
-  una advertencia.
-
-* Las inserciones son idempotentes (`UPSERT`) para evitar duplicados cuando
-  un contrato cambia de estado.
-
-* El código DIVIPOLA se parametriza mediante variable de entorno para
-  facilitar la expansión a otros municipios.
+* Reintentos con backoff exponencial.
+* Procesamiento asíncrono de simplificación.
+* Inserciones idempotentes (`UPSERT`).
+* Parametrización por código DIVIPOLA.
 
 ---
 
 # Escalabilidad y Roadmap Futuro
 
-El proyecto está preparado para escalar a nivel nacional sin cambios
-estructurales. Algunas mejoras planificadas para cuando se requiera mayor
-capacidad:
-
-* Migrar la inferencia a un servidor con GPU dedicada y colas distribuidas
-  (Celery + Redis o RabbitMQ).
-
-* Implementar cache con Redis para consultas frecuentes y endpoints de mapas.
-
-* Fine-tuning del modelo con un corpus de contratos reales simplificados por
-  expertos.
-
-* Índices espaciales (PostGIS) y clustering de marcadores en el frontend.
-
-* Autenticación opcional para personalizar la experiencia por municipio.
-
-* Monitoreo y alertas sobre la frescura de los datos.
+* Migración a colas distribuidas (Celery + Redis).
+* Cache con Redis.
+* Fine-tuning del modelo.
+* Integración con PostGIS.
+* Autenticación opcional.
+* Monitoreo de frescura de datos.
 
 ---
 
 # Experiencia de Usuario y Accesibilidad
 
-* **Diseño adaptativo (Mobile-First)** probado en emuladores de dispositivos
-  antiguos (Android 5, 1 GB de RAM).
-
-* **Colores funcionales:** verde para activo/en ejecución, rojo para alertas o
-  problemas, amarillo para precaución, gris para finalizado. No se utilizan
-  emojis como único medio para transmitir información.
-
-* **Tipografía clara y botones grandes (mínimo 48x48 px).**
-
-* Navegación simplificada con búsqueda por municipio y tarjetas de información
-  jerarquizada.
-
-* Compatibilidad con lectores de pantalla gracias a los componentes accesibles
-  de Shadcn/ui (basados en Radix).
+* Diseño Mobile-First.
+* Compatibilidad con dispositivos antiguos.
+* Botones grandes y navegación simplificada.
+* Compatibilidad con lectores de pantalla.
 
 ---
 
 # Licencia
 
 MIT License. Ver archivo `LICENSE` para más detalles.
+
