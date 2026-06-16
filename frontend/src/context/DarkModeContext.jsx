@@ -4,11 +4,11 @@ const DarkModeContext = createContext(null);
 
 export function DarkModeProvider({ children }) {
   const [dark, setDark] = useState(() => {
-    try { return localStorage.getItem("atlas-dark-mode") === "true"; } catch { return false; }
+    try { return localStorage.getItem("atlas-dark-mode") === "true"; } catch (e) { void e; return false; }
   });
 
   useEffect(() => {
-    try { localStorage.setItem("atlas-dark-mode", String(dark)); } catch {}
+    try { localStorage.setItem("atlas-dark-mode", String(dark)); } catch (e) { void e; }
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
 

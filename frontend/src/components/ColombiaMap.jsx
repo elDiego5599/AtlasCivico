@@ -31,10 +31,20 @@ function readCache() {
 }
 
 function writeCache(data) {
-  try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, ts: Date.now() })); } catch {}
+  try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, ts: Date.now() })); } catch (e) { void e; }
 }
 
-function ColombiaMap({ onSelect, onReset }) {
+function getInvestmentColor(value, maxValue) {
+  if (!value || value === 0) return "#D6D3CD";
+  const t = Math.min(value / maxValue, 1);
+  if (t < 0.15) return "#B8CCE0";
+  if (t < 0.35) return "#8BAFC9";
+  if (t < 0.55) return "#5E81AC";
+  if (t < 0.75) return "#3D5A80";
+  return "#2A3F5F";
+}
+
+function ColombiaMap({ onSelect, onReset, investmentData }) {
   const [topoData, setTopoData] = useState(() => readCache());
   const [loadError, setLoadError] = useState(null);
   const [selectedDept, setSelectedDept] = useState(null);
@@ -76,7 +86,7 @@ function ColombiaMap({ onSelect, onReset }) {
           if (bbox.width > 0 && bbox.height > 0) {
             setSanAndresBBox(bbox);
           }
-        } catch {}
+        } catch (e) { void e; }
       }
     }, 100);
     return () => clearTimeout(timer);
@@ -118,6 +128,11 @@ function ColombiaMap({ onSelect, onReset }) {
   );
 
   const handleRetry = useCallback(() => { setLoadError(null); setTopoData(null); setFetchAttempt((n) => n + 1); }, []);
+
+  const maxInvestment = useMemo(() => {
+    if (!investmentData) return 0;
+    return Math.max(...Object.values(investmentData), 1);
+  }, [investmentData]);
 
   if (loadError) {
     return (
@@ -212,12 +227,17 @@ function ColombiaMap({ onSelect, onReset }) {
                 const name = dept.properties.DPTO_CNMBR;
                 const isSelected = selectedDept?.properties?.DPTO_CNMBR === name;
                 const isHovered = hoveredDept === name;
+                const deptInfo = findDepartment(name);
+                const investment = investmentData?.[deptInfo?.id] || 0;
+                const fillColor = investmentData
+                  ? (isSelected ? LAND_SELECTED : isHovered ? LAND_HOVER : getInvestmentColor(investment, maxInvestment))
+                  : (isSelected ? LAND_SELECTED : isHovered ? LAND_HOVER : LAND);
                 return (
                   <motion.path
                     key={name}
                     d={dept.path}
                     initial={false}
-                    animate={{ fill: isSelected ? LAND_SELECTED : isHovered ? LAND_HOVER : LAND }}
+                    animate={{ fill: fillColor }}
                     transition={{ duration: 0.15 }}
                     stroke={isSelected ? BORDER_SELECTED : isHovered ? BORDER_HOVER : BORDER}
                     strokeWidth={isSelected ? 1.8 : isHovered ? 1.4 : 0.4}
@@ -263,10 +283,33 @@ function ColombiaMap({ onSelect, onReset }) {
                 className="absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none px-4 py-2 rounded-lg shadow-xl z-10"
                 style={{ backgroundColor: "rgba(31,41,55,0.92)", backdropFilter: "blur(8px)" }}
               >
-                <span className="text-white font-semibold text-xs tracking-widest uppercase">{hoveredDept}</span>
+                <span className="text-white font-semibold text-xs tracking-widest uppercase block">{hoveredDept}</span>
+                {investmentData && (() => {
+                  const deptInfo = findDepartment(hoveredDept);
+                  const inv = investmentData[deptInfo?.id];
+                  if (!inv) return null;
+                  const formatted = inv >= 1e9 ? `$${(inv / 1e9).toFixed(1)} MM` : inv >= 1e6 ? `$${(inv / 1e6).toFixed(0)}M` : `$${inv.toLocaleString("es-CO")}`;
+                  return <span className="text-[10px] mt-0.5 block" style={{ color: "rgba(255,255,255,0.5)" }}>Inversión: {formatted}</span>;
+                })()}
               </motion.div>
             )}
           </AnimatePresence>
+
+          {investmentData && (
+            <div className="absolute top-4 left-4 sm:top-6 sm:left-6 rounded-lg p-3 z-10" style={{ backgroundColor: "rgba(31,41,55,0.85)", backdropFilter: "blur(8px)" }}>
+              <p className="text-[9px] font-bold uppercase tracking-widest mb-2" style={{ color: "rgba(255,255,255,0.5)" }}>Inversión Pública</p>
+              <div className="flex flex-col gap-1">
+                {[{ color: "#2A3F5F", label: "Alta" }, { color: "#3D5A80", label: "Media-alta" }, { color: "#5E81AC", label: "Media" },
+                  { color: "#8BAFC9", label: "Media-baja" }, { color: "#B8CCE0", label: "Baja" }, { color: "#D6D3CD", label: "Sin datos" }
+                ].map((item) => (
+                  <div key={item.label} className="flex items-center gap-2">
+                    <div className="w-3 h-2 rounded-sm" style={{ backgroundColor: item.color }} />
+                    <span className="text-[9px]" style={{ color: "rgba(255,255,255,0.6)" }}>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {sanAndresBBox && sanAndres && (
             <div

@@ -20,6 +20,14 @@ const VALUE_RANGES = [
   { label: "> $5.000M", min: 5e9, max: Infinity },
 ];
 
+function computeInvestmentData() {
+  const data = {};
+  Object.entries(MOCK_CONTRACTS).forEach(([deptId, contracts]) => {
+    data[deptId] = contracts.reduce((sum, c) => sum + c.valor, 0);
+  });
+  return data;
+}
+
 function exportCSV(deptName, contracts) {
   if (!contracts.length) return;
   const headers = ["ID", "Entidad", "Contratista", "Objeto", "Valor", "Estado", "Fecha Firma"];
@@ -78,6 +86,7 @@ export default function Veeduria() {
 
   const allEntities = useMemo(() => [...new Set(contracts.map((c) => c.entidad))], [contracts]);
   const hasSelection = selectedDeptInfo !== null;
+  const investmentData = useMemo(() => computeInvestmentData(), []);
 
   const bgMain = dark ? "#0F141E" : "#ECE9E1";
   const textMain = dark ? "#F8F6F1" : "#1F2937";
@@ -169,7 +178,7 @@ export default function Veeduria() {
 
         <section className="relative max-w-7xl mx-auto px-6 md:px-10">
           <div className={`relative grid gap-10 transition-all duration-700 ease-in-out ${hasSelection ? "lg:grid-cols-[minmax(0,0.92fr)_minmax(420px,0.78fr)]" : "lg:grid-cols-1"}`}>
-            <ColombiaMap key={mapKey} onSelect={handleSelect} onReset={handleReset} />
+            <ColombiaMap key={mapKey} onSelect={handleSelect} onReset={handleReset} investmentData={investmentData} />
 
             <AnimatePresence mode="wait">
               {showDetail && selectedDeptInfo && (
