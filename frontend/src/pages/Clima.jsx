@@ -17,6 +17,28 @@ const MAP_HEIGHT = 1000;
 const DEFAULT_VIEWBOX = `0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`;
 const OCEAN = "#243447";
 
+const MOCK_WEEKLY_TEMP = {
+  atlantico: [33.1, 33.8, 34.5, 34.2, 33.9, 34.8, 34.2],
+  bolivar: [32.5, 33.2, 34.0, 33.8, 33.1, 34.2, 33.8],
+  antioquia: [27.8, 28.2, 29.1, 28.5, 27.9, 28.8, 28.5],
+  cundinamarca: [18.5, 19.0, 19.8, 19.2, 18.7, 19.5, 19.2],
+  magdalena: [34.2, 35.0, 35.8, 35.1, 34.5, 35.5, 35.1],
+  cesar: [35.0, 36.2, 37.0, 36.5, 35.8, 36.8, 36.5],
+  santander: [29.5, 30.0, 30.8, 30.2, 29.8, 30.5, 30.2],
+  valle: [30.2, 30.8, 31.5, 31.0, 30.5, 31.2, 31.0],
+};
+
+const MOCK_DROUGHT_INDEX = {
+  atlantico: { actual: 0.35, promedio: 0.42 },
+  bolivar: { actual: 0.38, promedio: 0.45 },
+  antioquia: { actual: 0.22, promedio: 0.30 },
+  cundinamarca: { actual: 0.18, promedio: 0.28 },
+  magdalena: { actual: 0.55, promedio: 0.40 },
+  cesar: { actual: 0.62, promedio: 0.38 },
+  santander: { actual: 0.28, promedio: 0.32 },
+  valle: { actual: 0.25, promedio: 0.33 },
+};
+
 function readCache() {
   try {
     const raw = sessionStorage.getItem(CACHE_KEY);
@@ -29,7 +51,7 @@ function readCache() {
 }
 
 function writeCache(data) {
-  try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, ts: Date.now() })); } catch {}
+  try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, ts: Date.now() })); } catch (e) { void e; }
 }
 
 function getHeatColor(temp) {
@@ -76,6 +98,87 @@ function BarChart({ data, maxVal, color, label, unit }) {
   );
 }
 
+function TemperatureTrend({ deptId }) {
+  const temps = MOCK_WEEKLY_TEMP[deptId] || [];
+  if (temps.length === 0) return null;
+  const days = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+  const minT = Math.min(...temps) - 2;
+  const maxT = Math.max(...temps) + 2;
+  const range = maxT - minT || 1;
+  const w = 280;
+  const h = 80;
+  const pts = temps.map((t, i) => {
+    const x = (i / (temps.length - 1)) * w;
+    const y = h - ((t - minT) / range) * h;
+    return `${x},${y}`;
+  }).join(" ");
+  const areaPts = `0,${h} ${pts} ${w},${h}`;
+
+  return (
+    <div className="rounded-xl p-4" style={{ backgroundColor: "rgba(107,114,128,0.04)", border: "1px solid rgba(214,211,205,0.35)" }}>
+      <span className="text-[10px] uppercase tracking-wider block mb-2" style={{ color: "#6B7280" }}>Tendencia 7 días</span>
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{ height: 80 }}>
+        <defs>
+          <linearGradient id={`trend-${deptId}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#F97316" stopOpacity="0.3" />
+            <stop offset="100%" stopColor="#F97316" stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+        <polygon points={areaPts} fill={`url(#trend-${deptId})`} />
+        <polyline points={pts} fill="none" stroke="#F97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        {temps.map((t, i) => {
+          const x = (i / (temps.length - 1)) * w;
+          const y = h - ((t - minT) / range) * h;
+          return <circle key={i} cx={x} cy={y} r="3" fill="#F97316" />;
+        })}
+      </svg>
+      <div className="flex justify-between mt-1">
+        {days.map((d, i) => (
+          <span key={i} className="text-[8px]" style={{ color: "#6B7280" }}>{d}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DroughtComparison({ deptId }) {
+  const d = MOCK_DROUGHT_INDEX[deptId];
+  if (!d) return null;
+  const natAvg = 0.35;
+  const deptPct = Math.round(d.actual * 100);
+  const avgPct = Math.round(d.promedio * 100);
+  const natPct = Math.round(natAvg * 100);
+  const diff = deptPct - avgPct;
+
+  return (
+    <div className="rounded-xl p-4" style={{ backgroundColor: "rgba(107,114,128,0.04)", border: "1px solid rgba(214,211,205,0.35)" }}>
+      <span className="text-[10px] uppercase tracking-wider block mb-3" style={{ color: "#6B7280" }}>Sequía vs Promedio</span>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs" style={{ color: "#1F2937" }}>Departamento</span>
+          <span className="text-xs font-bold" style={{ color: deptPct > 50 ? "#B86B5E" : "#6F8F72" }}>{deptPct}%</span>
+        </div>
+        <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: "rgba(107,114,128,0.1)" }}>
+          <div className="h-full rounded-full" style={{ width: `${deptPct}%`, backgroundColor: deptPct > 50 ? "#B86B5E" : "#6F8F72" }} />
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-xs" style={{ color: "#1F2937" }}>Promedio regional</span>
+          <span className="text-xs font-bold" style={{ color: "#6B7280" }}>{avgPct}%</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-xs" style={{ color: "#1F2937" }}>Promedio nacional</span>
+          <span className="text-xs font-bold" style={{ color: "#6B7280" }}>{natPct}%</span>
+        </div>
+      </div>
+      <div className="mt-3 pt-2" style={{ borderTop: "1px solid rgba(214,211,205,0.3)" }}>
+        <span className="text-[10px] font-bold" style={{ color: diff > 0 ? "#B86B5E" : "#6F8F72" }}>
+          {diff > 0 ? `+${diff}%` : `${diff}%`} vs promedio regional
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function exportCSV(deptName, climate) {
   if (!climate) return;
   const headers = ["Departamento", "Temperatura (°C)", "Humedad (%)", "Índice Calor (°C)", "Nivel Río (m)", "Alerta Incendio", "Estación"];
@@ -99,6 +202,7 @@ export default function Clima() {
   const [hoveredDept, setHoveredDept] = useState(null);
   const [selectedDept, setSelectedDept] = useState(null);
   const [compareDept, setCompareDept] = useState(null);
+  const [compareMode, setCompareMode] = useState(false);
   const [fetchAttempt, setFetchAttempt] = useState(0);
   const { dark } = useDarkMode();
 
@@ -185,7 +289,7 @@ export default function Clima() {
   }
 
   const hasSelection = selectedDept !== null;
-  const hasCompare = compareDept !== null;
+  const hasCompare = compareMode && compareDept !== null;
 
   return (
     <div className="relative min-h-screen font-sans overflow-x-hidden flex flex-col" style={{ backgroundColor: bgMain, color: textMain }}>
@@ -212,8 +316,20 @@ export default function Clima() {
             <DepartmentSearch onSelect={handleSearchSelect} selectedId={selectedData?.deptInfo?.id} accentColor="#6F8F72" />
             {hasSelection && (
               <motion.div initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} className="flex flex-wrap gap-2 items-center">
-                <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: muted }}>Comparar con:</span>
-                <DepartmentSearch onSelect={handleCompareSelect} selectedId={compareData?.deptInfo?.id} accentColor="#B86B5E" />
+                <button
+                  onClick={() => { setCompareMode(!compareMode); if (compareMode) setCompareDept(null); }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold rounded-lg transition-all duration-200 hover:scale-[1.02]"
+                  style={{
+                    backgroundColor: compareMode ? "rgba(111,143,114,0.15)" : "rgba(107,114,128,0.06)",
+                    color: compareMode ? "#5A7A5D" : "#6B7280",
+                    border: `1px solid ${compareMode ? "rgba(111,143,114,0.3)" : "rgba(214,211,205,0.3)"}`,
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
+                  </svg>
+                  {compareMode ? "Modo Comparación Activo" : "Comparar"}
+                </button>
                 {selectedData?.climate && (
                   <>
                     <button
@@ -270,11 +386,12 @@ export default function Clima() {
                       const temp = dept.climate?.temperatura;
                       const isHovered = hoveredDept === name;
                       const isSelected = selectedDept === name;
+                      const isCompare = compareDept === name;
                       return (
                         <path key={name} d={dept.path} fill={getHeatColor(temp)}
-                          fillOpacity={isSelected ? 1 : isHovered ? 0.9 : 0.75}
-                          stroke={isSelected ? "#FFFFFF" : isHovered ? "#00D4FF" : "rgba(255,255,255,0.15)"}
-                          strokeWidth={isSelected ? 2 : isHovered ? 1.5 : 0.4}
+                          fillOpacity={isSelected ? 1 : isHovered ? 0.9 : isCompare ? 0.85 : 0.75}
+                          stroke={isSelected ? "#FFFFFF" : isCompare ? "#C9A66B" : isHovered ? "#00D4FF" : "rgba(255,255,255,0.15)"}
+                          strokeWidth={isSelected ? 2 : isCompare ? 1.8 : isHovered ? 1.5 : 0.4}
                           strokeLinejoin="round"
                           style={{ cursor: "pointer", transition: "fill-opacity 0.15s, stroke 0.15s, stroke-width 0.15s" }}
                           onMouseEnter={() => setHoveredDept(name)}
@@ -335,7 +452,7 @@ export default function Clima() {
             <AnimatePresence mode="wait">
               {hasSelection && selectedData && (
                 <motion.div key={selectedDept} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.4 }} className="lg:sticky lg:top-28">
-                  <ClimatePanel data={selectedData} onClose={() => setSelectedDept(null)} />
+                  <ClimatePanel data={selectedData} onClose={() => { setSelectedDept(null); setCompareDept(null); setCompareMode(false); }} />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -343,7 +460,10 @@ export default function Clima() {
             <AnimatePresence mode="wait">
               {hasCompare && compareData && (
                 <motion.div key={compareDept} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.4, delay: 0.1 }} className="lg:sticky lg:top-28">
-                  <ClimatePanel data={compareData} onClose={() => setCompareDept(null)} />
+                  <div className="mb-3">
+                    <DepartmentSearch onSelect={handleCompareSelect} selectedId={compareData?.deptInfo?.id} accentColor="#B86B5E" />
+                  </div>
+                  <ClimatePanel data={compareData} onClose={() => setCompareDept(null)} accentColor="#B86B5E" />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -384,7 +504,13 @@ export default function Clima() {
 function ClimatePanel({ data, onClose }) {
   if (!data?.climate) return null;
   const c = data.climate;
+  const deptId = data.deptInfo?.id;
   const isDark = document.documentElement.classList.contains("dark");
+
+  const riskAlerts = [];
+  if (c.alertaIncendio) riskAlerts.push({ label: "Incendio forestal", color: "#B86B5E" });
+  if (c.indiceCalor > 40) riskAlerts.push({ label: "Calor extremo", color: "#F97316" });
+  if (c.nivelRio > 4) riskAlerts.push({ label: "Nivel del río alto", color: "#5E81AC" });
 
   return (
     <div className="rounded-xl overflow-hidden" style={{
@@ -400,7 +526,7 @@ function ClimatePanel({ data, onClose }) {
             <h2 className="font-display text-2xl font-bold text-white tracking-tight">{data.deptInfo?.name || data.properties?.DPTO_CNMBR}</h2>
             <p className="text-sm mt-1" style={{ color: "rgba(255,255,255,0.45)" }}>Capital: {data.deptInfo?.capital}</p>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg text-white transition-all duration-200 hover:scale-110" style={{ backgroundColor: "rgba(255,255,255,0.08)" }}>
+          <button onClick={onClose} className="ml-4 p-2.5 rounded-lg text-white transition-all duration-200 hover:scale-110" style={{ backgroundColor: "rgba(255,255,255,0.08)" }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -409,7 +535,7 @@ function ClimatePanel({ data, onClose }) {
       </div>
 
       <div className="p-6 sm:p-8">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 mb-4">
           {[
             { label: "Temperatura", value: `${c.temperatura}°C`, color: getHeatColor(c.temperatura) },
             { label: "Humedad", value: `${c.humedadRelativa}%`, color: "#5E81AC" },
@@ -421,21 +547,29 @@ function ClimatePanel({ data, onClose }) {
               <span className="font-display text-xl font-bold" style={{ color: item.color }}>{item.value}</span>
             </div>
           ))}
-          <div className="col-span-2 rounded-xl p-4 flex items-center justify-center" style={{
-            backgroundColor: c.alertaIncendio ? "rgba(184,107,94,0.06)" : "rgba(111,143,114,0.06)",
-            border: `1px solid ${c.alertaIncendio ? "rgba(184,107,94,0.2)" : "rgba(111,143,114,0.2)"}`
-          }}>
-            <span className="inline-flex items-center gap-2 font-display text-sm font-bold" style={{ color: c.alertaIncendio ? "#B86B5E" : "#6F8F72" }}>
-              {c.alertaIncendio && (
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ backgroundColor: "#B86B5E" }} />
-                  <span className="relative inline-flex rounded-full h-2 w-2" style={{ backgroundColor: "#B86B5E" }} />
-                </span>
-              )}
-              Alerta Incendio: {c.alertaIncendio ? "ACTIVA" : "Inactiva"}
-            </span>
-          </div>
         </div>
+
+        {deptId && <TemperatureTrend deptId={deptId} />}
+        {deptId && <div className="mt-3"><DroughtComparison deptId={deptId} /></div>}
+
+        {riskAlerts.length > 0 && (
+          <div className="mt-4 rounded-xl p-4" style={{ backgroundColor: "rgba(184,107,94,0.04)", border: "1px solid rgba(184,107,94,0.15)" }}>
+            <span className="text-[10px] uppercase tracking-wider block mb-2" style={{ color: "#B86B5E" }}>Alertas de Riesgo</span>
+            <div className="flex flex-wrap gap-2">
+              {riskAlerts.map((alert, i) => (
+                <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold"
+                  style={{ backgroundColor: `${alert.color}11`, color: alert.color, border: `1px solid ${alert.color}33` }}>
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ backgroundColor: alert.color }} />
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{ backgroundColor: alert.color }} />
+                  </span>
+                  {alert.label}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         <p className="text-[10px] mt-4 text-center" style={{ color: "#6B7280" }}>Estación: {c.estacion}</p>
       </div>
     </div>
